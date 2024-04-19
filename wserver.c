@@ -24,6 +24,14 @@
 #include <arpa/inet.h>
 #include <netdb.h> 
 
+//file I/O and memory mapping
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+
+//my headers
+//#include "shared.h"
+
 //default values
 const char* DEF_PORT = "10401";
 const char* DEF_THREADS = "1";
@@ -121,6 +129,95 @@ void prepare_for_connection(int sockfd, struct sigaction* sa, int backlog) {
     printf("server: waiting for connections...\n");
 }
 
+void handle_request(int new_fd) {
+    size_t max_chars = 1024; //should be plenty for our requests
+    char buffer[max_chars]; //buffer is not necessarily null terminated
+    size_t bytes_recvd = recv(new_fd, &buffer, max_chars, 0); //0 -> MSG_WAITALL?
+    if(bytes_recvd <= 0){
+        fprintf(stderr, "server: recieve within outer fork\n"); 
+        exit(1); 
+    }
+
+    printf("%.*s\n", 0, *(bytes_recvd, (char*) buffer)); //"%.*s" sets min and max string length
+
+    //strings don't have endianness, so no need to ntoh()
+    //second token should be filename
+    char* method = strtok(buffer, " ");
+    printf("request method = %s\n", method);
+    char* path = strtok(NULL, " ");
+    printf("request path = %s\n", path);
+    char* protocol = strtok(NULL, " ");
+    printf("request protocol = %s\n", protocol);
+
+    if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
+        memmove(path, path+1, strlen(path));
+    }
+    //open and memory map requested file
+    //mem mapping allows server to read contents of file directly from disk into memory without having to perform explicit read operations
+    //OS will map a region of virtual memory to the file on the disk, leveraging OS's mem management and caching mecahnisms
+    //it's also simpler to use, donh't have to treat files on disk differently than standard memory access
+    int fd = open(path, O_RDONLY);
+    struct stat filestat;
+    fstat(fd, &filestat);
+    void *mapped = mmap(NULL, filestat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+
+    //send HTTP response with file contents
+    char header[1024];
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", filestat.st_size);
+    write(new_fd, header, strlen(header));
+    write(new_fd, mapped, filestat.st_size);
+
+    //cleanup
+    munmap(mapped, filestat.st_size);
+
+    close(new_fd);
+    /* from pa1
+    char* connection = argv[1];
+    char* token = std::strtok(connection, ":");
+    printf("host = %s\n", token);
+    recip->host = token;
+    token = std::strtok(NULL, ":");
+    if (token == NULL) { // no ":"
+        fprintf(stderr,"usage: client hostname and port format should be hostname:server_port\n");
+        exit(1);
+    }
+    printf("port = %s\n", token);
+    recip->port = token; // keep port a char* bc that's the form it needs for subsequent functions
+    */
+
+    /*CHATGPT
+    
+    // Check if it's a GET request for test.html
+        if (strstr(buffer, "GET /" FILENAME) == NULL) {
+            char *response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+            write(newsockfd, response, strlen(response));
+            close(newsockfd);
+            exit(0);
+        }
+    */
+
+    //parse URL portion (2nd token)
+    //call parse 
+    //everything before "?" (if it exists) is filename
+    //everything after "?" (if it exists) is put into QUERY_STRING env variable
+        //call handle request -> static, dynamic
+
+    /* from pa1
+    int inner_chld_status = fork();
+    if(inner_chld_status < 0) {
+        fprintf(stderr, "server: inner child failed to fork\n"); 
+        exit(1); 
+    }
+
+    if(inner_chld_status == 0) {
+        execute_and_send(new_fd, &req);
+    } else {
+        close(new_fd);
+    }
+    */
+}
+
 void main_accept_loop(int sockfd) {
     int new_fd; // listen on sock_fd, new connection on new_fd 
     struct sockaddr_storage their_addr; // connector's address information 
@@ -141,9 +238,24 @@ void main_accept_loop(int sockfd) {
             &(((struct sockaddr_in*)(struct sockaddr *)&their_addr)->sin_addr), 
             s, sizeof s);
         printf("server: got connection from %s\n", s);
+
+        int outer_chld_status = fork();
+        if(outer_chld_status < 0) {
+            fprintf(stderr, "server: outer child failed to fork\n"); 
+            exit(1); 
+        }
+
+        //accepted a request, now get the file name and memory map/send the file contents back
+        if (outer_chld_status == 0) { 
+            // this is the child process now, if fork returned 0
+            close(sockfd); // child doesn't need copy of the listener 
+            handle_request(new_fd);
+            exit(0); 
+        } else {
+            close(new_fd);
+        }
     }
 }
-
 
 //signature needs to change
 void parse_argv(int argc, char* argv[], char** port, char** thread_str, char** buffer_str) {
@@ -158,6 +270,10 @@ void parse_argv(int argc, char* argv[], char** port, char** thread_str, char** b
             exit(1);
         }
         if (strcmp("-p", argv[i]) == 0) { //check if port is <= 65535 (max port #)
+            if (atoi(argv[i+1]) > 65535) {
+                fprintf(stderr, "port does not exist.\n");
+                exit(1);
+            }
             *(port) = argv[i+1];
         }
         else if (strcmp("-t", argv[i]) == 0) {
