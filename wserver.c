@@ -129,29 +129,7 @@ void prepare_for_connection(int sockfd, struct sigaction* sa, int backlog) {
     printf("server: waiting for connections...\n");
 }
 
-void handle_request(int new_fd) {
-    size_t max_chars = 1024; //should be plenty for our requests
-    char buffer[max_chars]; //buffer is not necessarily null terminated
-    size_t bytes_recvd = recv(new_fd, &buffer, max_chars, 0); //0 -> MSG_WAITALL?
-    if(bytes_recvd <= 0){
-        fprintf(stderr, "server: recieve within outer fork\n"); 
-        exit(1); 
-    }
-
-    printf("%.*s\n", 0, *(bytes_recvd, (char*) buffer)); //"%.*s" sets min and max string length
-
-    //strings don't have endianness, so no need to ntoh()
-    //second token should be filename
-    char* method = strtok(buffer, " ");
-    printf("request method = %s\n", method);
-    char* path = strtok(NULL, " ");
-    printf("request path = %s\n", path);
-    char* protocol = strtok(NULL, " ");
-    printf("request protocol = %s\n", protocol);
-
-    if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
-        memmove(path, path+1, strlen(path));
-    }
+void static_request(int new_fd, char* path) {
     //open and memory map requested file
     //mem mapping allows server to read contents of file directly from disk into memory without having to perform explicit read operations
     //OS will map a region of virtual memory to the file on the disk, leveraging OS's mem management and caching mecahnisms
@@ -172,6 +150,120 @@ void handle_request(int new_fd) {
     munmap(mapped, filestat.st_size);
 
     close(new_fd);
+}
+
+void dynamic_request(int new_fd, char* path) {
+    char* params = path;
+    params += strlen("fib.cgi?"); //get everything after ? in path
+    printf("path: %s\n", path);
+
+    printf("params: %s\n", params);
+
+    //setenv("QUERY_STRING", params, 1); //1 overwrites what wasw previously in QUERY_STRING
+
+    //redirect standard output to the socket before executing fib.cpp
+
+    //make envp char* array, fib.cgi can access what you put in this via environ global variable
+    //new idea: let's set the environ global var for ourselves (to "QUERY_STRING=__"), bc execve() will give fib.cgi the parent's environment
+    char executable[] = "fib.cgi"; //computer can't run .cpp source files, only binary executables (which (the correct one) will be created via Makefile)
+    char* args[] = {executable, NULL};
+    char query_string[strlen("QUERY_STRING=")+strlen(params)]; //allocates buffer big enough for both strings
+    strcpy(query_string, "QUERY_STRING="); //copy for string literal
+    strcat(query_string, params); //add to the end, already null terminated
+
+    printf("qstring = %s\n", query_string); //isnt printing even with flush
+    fflush(stdout);
+    char* env_args[] = {query_string, NULL};
+
+    //dup2(new_fd, STDOUT_FILENO); //output works except dup2() seems to not be redirecting
+    //99% sure not a close(file descriptor) issue
+    //dup2(new_fd, STDERR_FILENO);
+    if (dup2(new_fd, STDOUT_FILENO) == -1) {
+        perror("dup2 stdout");
+        close(new_fd);
+        exit(EXIT_FAILURE);
+    }
+    if (dup2(new_fd, STDERR_FILENO) == -1) {
+        perror("dup2 stderr");
+        close(new_fd);
+        exit(EXIT_FAILURE);
+    }
+    //dup2 is not giving errors
+    char msg[] = "hello";
+    write(new_fd, msg, strlen(msg));
+    close(new_fd); //not even closing...... never has been
+
+    //error: nothing is getting printed
+
+    //reponse is "empty reply from server"
+    if (execve(args[0], args, env_args) == -1) {
+        perror("execve");
+        close(new_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    // If execve fails, print error message
+    perror("execve");
+    close(new_fd);
+    exit(EXIT_FAILURE);
+}
+
+void handle_request(int new_fd) {
+    size_t max_chars = 1024; //should be plenty for our requests
+    char buffer[max_chars]; //buffer is not necessarily null terminated
+    size_t total_bytes = 0; //number of bytes recieved so far
+    size_t bytes_recvd = recv(new_fd, &buffer, max_chars, 0);
+    if(bytes_recvd == 0) {
+        fprintf(stderr, "server: recieve within outer fork\n"); 
+        exit(1); 
+    }
+    while (bytes_recvd != 0) {
+        if(bytes_recvd < 0) {
+            fprintf(stderr, "server: recieve within outer fork\n"); 
+            exit(1); 
+        }
+        total_bytes += bytes_recvd;
+        printf("before recv");
+        bytes_recvd = recv(new_fd, (&buffer + total_bytes), max_chars, 0); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
+        printf("after recv");
+    }
+    //fix(ed?): recv until 0 bytes recieves
+    //client might break up packet, not in your control
+
+    //printf("%.*s\n", 0, *(bytes_recvd, (char*) buffer)); //"%.*s" sets min and max string length
+
+    //ERROR
+    //im sending path /fib.cgi?user=user&n=5
+    //but server says path = /fib.cgi?user=user
+
+    //strings don't have endianness, so no need to ntoh()
+    //second token should be filename
+    char* method = strtok(buffer, " ");
+    printf("request method = %s\n", method);
+    char* path = strtok(NULL, " ");
+    printf("request path = %s\n", path);
+    char* protocol = strtok(NULL, " ");
+    printf("request protocol = %s\n", protocol);
+
+    if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
+        memmove(path, path+1, strlen(path));
+    }
+
+    if (strstr(path, "fib.cgi") == NULL) { //if path does not request fib.cgi, treat it as a static request
+        static_request(new_fd, path);
+    } else {
+        int inner_chld_status = fork();
+        if(inner_chld_status < 0) {
+            fprintf(stderr, "server: inner child failed to fork\n"); 
+            exit(1); 
+        }
+
+        if(inner_chld_status == 0) {
+            dynamic_request(new_fd, path);
+        } else {
+            close(new_fd);
+        }
+    }
     /* from pa1
     char* connection = argv[1];
     char* token = std::strtok(connection, ":");
