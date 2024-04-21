@@ -190,9 +190,7 @@ void dynamic_request(int new_fd, char* path) {
         close(new_fd);
         exit(EXIT_FAILURE);
     }
-    //dup2 is not giving errors
-    char msg[] = "hello";
-    write(new_fd, msg, strlen(msg));
+
     close(new_fd); //not even closing...... never has been
 
     //error: nothing is getting printed
@@ -226,6 +224,8 @@ void handle_request(int new_fd) {
             fprintf(stderr, "server: read() within outer fork\n"); 
             exit(1); 
         }
+
+        total_bytes += bytes_read;
         //if end of request (\r\n\r\n) is in the buffer, do not attempt to read again, will get stuck
         if (strstr(buffer, "\r\n\r\n") != NULL) {
             break;
@@ -233,7 +233,7 @@ void handle_request(int new_fd) {
  
         //read() and write() are universally used, recv() and send() are for more specialized cases
         //so for this one use read() and write()
-        total_bytes += bytes_read;
+        
         printf("before read\n"); //it's waiting for the curl to close it's connection before continuing, shange recv() to read()
         //nothing is left to read possible, how to move past this if there's nothing left in the request
         bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
@@ -250,9 +250,10 @@ void handle_request(int new_fd) {
 
     //strings don't have endianness, so no need to ntoh()
     //second token should be filename
+    printf("buffer: %.*s\n", total_bytes, buffer);
     char* method = strtok(buffer, " ");
     printf("request method = %s\n", method);
-    char* path = strtok(NULL, " ");
+    char* path = strtok(NULL, " "); //takes out &n=5????
     printf("request path = %s\n", path);
     char* protocol = strtok(NULL, " ");
     printf("request protocol = %s\n", protocol);
@@ -436,4 +437,5 @@ int main(int argc, char* argv[]) {
 }
 
 //nc 127.0.0.1 10488
-//curl http://localhost:10488
+//curl "http://localhost:10488/blah?blah=blah&blah=blah" 
+//^ USE QUOTATIONS WITH CURL
