@@ -1,3 +1,5 @@
+//my port is 10488
+
 //stdlib
 #include <stdlib.h> 
 
@@ -209,28 +211,38 @@ void dynamic_request(int new_fd, char* path) {
 }
 
 void handle_request(int new_fd) {
-    size_t max_chars = 1024; //should be plenty for our requests
+    ssize_t max_chars = 1024; //should be plenty for our requests
     char buffer[max_chars]; //buffer is not necessarily null terminated
-    size_t total_bytes = 0; //number of bytes recieved so far
-    size_t bytes_recvd = recv(new_fd, &buffer, max_chars, 0);
-    if(bytes_recvd == 0) {
-        fprintf(stderr, "server: recieve within outer fork\n"); 
+    ssize_t total_bytes = 0; //number of bytes recieved so far
+    ssize_t bytes_read = read(new_fd, &buffer, max_chars); //ssize_t is a signed size_t
+    if(bytes_read == 0) {
+        fprintf(stderr, "server: read() within outer fork\n"); 
         exit(1); 
     }
-    while (bytes_recvd != 0) {
-        if(bytes_recvd < 0) {
-            fprintf(stderr, "server: recieve within outer fork\n"); 
+    printf("bytes read: %d\n", bytes_read);
+    //this fixed the missing n=5 before, why is it breaking now?
+    while (bytes_read != 0) {
+        if(bytes_read < 0) {
+            fprintf(stderr, "server: read() within outer fork\n"); 
             exit(1); 
         }
-        total_bytes += bytes_recvd;
-        printf("before recv");
-        bytes_recvd = recv(new_fd, (&buffer + total_bytes), max_chars, 0); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
-        printf("after recv");
+        //if end of request (\r\n\r\n) is in the buffer, do not attempt to read again, will get stuck
+        if (strstr(buffer, "\r\n\r\n") != NULL) {
+            break;
+        }
+ 
+        //read() and write() are universally used, recv() and send() are for more specialized cases
+        //so for this one use read() and write()
+        total_bytes += bytes_read;
+        printf("before read\n"); //it's waiting for the curl to close it's connection before continuing, shange recv() to read()
+        //nothing is left to read possible, how to move past this if there's nothing left in the request
+        bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
+        printf("after read\n");
     }
     //fix(ed?): recv until 0 bytes recieves
     //client might break up packet, not in your control
 
-    //printf("%.*s\n", 0, *(bytes_recvd, (char*) buffer)); //"%.*s" sets min and max string length
+    //printf("%.*s\n", 0, *(bytes_read, (char*) buffer)); //"%.*s" sets min and max string length
 
     //ERROR
     //im sending path /fib.cgi?user=user&n=5
