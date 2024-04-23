@@ -239,14 +239,6 @@ void handle_request(int new_fd) {
         bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
         printf("after read\n");
     }
-    //fix(ed?): recv until 0 bytes recieves
-    //client might break up packet, not in your control
-
-    //printf("%.*s\n", 0, *(bytes_read, (char*) buffer)); //"%.*s" sets min and max string length
-
-    //ERROR
-    //im sending path /fib.cgi?user=user&n=5
-    //but server says path = /fib.cgi?user=user
 
     //strings don't have endianness, so no need to ntoh()
     //second token should be filename
@@ -277,50 +269,6 @@ void handle_request(int new_fd) {
             close(new_fd);
         }
     }
-    /* from pa1
-    char* connection = argv[1];
-    char* token = std::strtok(connection, ":");
-    printf("host = %s\n", token);
-    recip->host = token;
-    token = std::strtok(NULL, ":");
-    if (token == NULL) { // no ":"
-        fprintf(stderr,"usage: client hostname and port format should be hostname:server_port\n");
-        exit(1);
-    }
-    printf("port = %s\n", token);
-    recip->port = token; // keep port a char* bc that's the form it needs for subsequent functions
-    */
-
-    /*CHATGPT
-    
-    // Check if it's a GET request for test.html
-        if (strstr(buffer, "GET /" FILENAME) == NULL) {
-            char *response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-            write(newsockfd, response, strlen(response));
-            close(newsockfd);
-            exit(0);
-        }
-    */
-
-    //parse URL portion (2nd token)
-    //call parse 
-    //everything before "?" (if it exists) is filename
-    //everything after "?" (if it exists) is put into QUERY_STRING env variable
-        //call handle request -> static, dynamic
-
-    /* from pa1
-    int inner_chld_status = fork();
-    if(inner_chld_status < 0) {
-        fprintf(stderr, "server: inner child failed to fork\n"); 
-        exit(1); 
-    }
-
-    if(inner_chld_status == 0) {
-        execute_and_send(new_fd, &req);
-    } else {
-        close(new_fd);
-    }
-    */
 }
 
 void main_accept_loop(int sockfd) {
@@ -333,6 +281,9 @@ void main_accept_loop(int sockfd) {
         sin_size = sizeof their_addr;
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
         std::cout << "got request" << std::endl;
+        //pass accepted sockfd into queue for threads to consume
+        //then threads run void* Function(void* arg, void* arg)
+        //threads read() from the socket and decide what to do 
 
         if (new_fd == -1) {
             perror("accept");
