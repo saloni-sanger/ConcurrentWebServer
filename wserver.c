@@ -34,6 +34,10 @@
 //my headers
 //#include "shared.h"
 
+//2 mutexes
+//one for the queue protect enqueue/dequeueing bc producer and consumer share this
+//one for writing to the socket bc they all share this
+
 //default values
 const char* DEF_PORT = "10401";
 const char* DEF_THREADS = "1";
@@ -110,8 +114,11 @@ int make_bound_socket(struct addrinfo* servinfo) {
 }
 
 void prepare_for_connection(int sockfd, struct sigaction* sa, int backlog) {
-    if (listen(sockfd, backlog) == -1) { 
-        perror("listen");
+    //backlog is length of buffer, the number of request connections that can be 
+    //accepted at one time
+    //backlog = buffer = quue of pending connections at sockfd, which server will only have one of
+    if (listen(sockfd, backlog) == -1) { //listen is a system call, backlog is a kernal level queue
+        perror("listen"); 
         exit(1);
     }
 
@@ -257,13 +264,13 @@ void handle_request(int new_fd) {
     if (strstr(path, "fib.cgi") == NULL) { //if path does not request fib.cgi, treat it as a static request
         static_request(new_fd, path);
     } else {
-        int inner_chld_status = fork();
-        if(inner_chld_status < 0) {
+        int chld_status = fork();
+        if(chld_status < 0) {
             fprintf(stderr, "server: inner child failed to fork\n"); 
             exit(1); 
         }
 
-        if(inner_chld_status == 0) {
+        if(chld_status == 0) {
             dynamic_request(new_fd, path);
         } else {
             close(new_fd);
@@ -272,6 +279,8 @@ void handle_request(int new_fd) {
 }
 
 void main_accept_loop(int sockfd) {
+    //make an stl queue of ints //need to lock via mutex whenever enqueue or dequeeu called
+    //fill it with new_fd ints
     int new_fd; // listen on sock_fd, new connection on new_fd 
     struct sockaddr_storage their_addr; // connector's address information 
     socklen_t sin_size;
@@ -279,10 +288,17 @@ void main_accept_loop(int sockfd) {
 
     while(1) {
         sin_size = sizeof their_addr;
+        //instead of setting accept() to new_fd you enqueue an int to the Queue
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
         std::cout << "got request" << std::endl;
         //pass accepted sockfd into queue for threads to consume
-        //then threads run void* Function(void* arg, void* arg)
+
+        //one producer thread - our main(), enqueues connections via accept() and enqueue()
+        // -t consumer thread
+        //so, we need a consume() function
+
+        //sem_WAKEUP
+        //then threads run void* HANDLE_REQUEST(void* arg, void* arg) 
         //threads read() from the socket and decide what to do 
 
         if (new_fd == -1) {
@@ -290,26 +306,17 @@ void main_accept_loop(int sockfd) {
             continue; 
         }
 
+        handle_request(new_fd);
+        close(new_fd);
+
+        /* to test connected IP
         inet_ntop(their_addr.ss_family, 
             &(((struct sockaddr_in*)(struct sockaddr *)&their_addr)->sin_addr), 
             s, sizeof s);
         printf("server: got connection from %s\n", s);
+        */
+        
 
-        int outer_chld_status = fork();
-        if(outer_chld_status < 0) {
-            fprintf(stderr, "server: outer child failed to fork\n"); 
-            exit(1); 
-        }
-
-        //accepted a request, now get the file name and memory map/send the file contents back
-        if (outer_chld_status == 0) { 
-            // this is the child process now, if fork returned 0
-            close(sockfd); // child doesn't need copy of the listener 
-            handle_request(new_fd);
-            exit(0); 
-        } else {
-            close(new_fd);
-        }
     }
 }
 
@@ -364,6 +371,10 @@ int main(int argc, char* argv[]) {
     printf("port: %s\n", port);
     printf("thread_str: %s\n", thread_str);
     printf("buffer_str: %s\n", buffer_str);
+
+    //make ur threads based on -t
+    //array of ints for p_ids
+    //pthread_create() for handle_request() function (adjust to void*)
 
     struct addrinfo* servinfo; //return value for get_addresses
     get_addresses(&servinfo, port); // mutates servinfo, no return needed
