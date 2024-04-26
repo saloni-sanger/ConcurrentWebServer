@@ -10,12 +10,16 @@
 #include <stdio.h>
 #include <iostream>
 
+//stl queue
+#include <queue>
+
 //signal handling
 #include <signal.h>
 
 //concurrency control
 #include <sys/wait.h> //provides waitpid()
 #include <semaphore.h> //provides sem_...()
+#include <pthread.h>
 
 //unix socket
 #include <unistd.h> 
@@ -42,6 +46,14 @@
 const char* DEF_PORT = "10401";
 const char* DEF_THREADS = "1";
 const char* DEF_BUFFS = "1";
+
+//concurrency control
+sem_t full, empty;
+pthread_mutex_t queue_mutex, socket_mutex;
+
+//shared arguments between threads should be global to avoid memory corruption
+std::queue<int> q;
+int sockfd;
 
 void sigchld_handler(int s) { //waits until child is cleaned up
     // waitpid() might overwrite errno, so we save and restore it:
@@ -152,8 +164,11 @@ void static_request(int new_fd, char* path) {
     //send HTTP response with file contents
     char header[1024];
     sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", filestat.st_size);
+
+    pthread_mutex_lock(&socket_mutex);
     write(new_fd, header, strlen(header));
     write(new_fd, mapped, filestat.st_size);
+    pthread_mutex_unlock(&socket_mutex);
 
     //cleanup
     munmap(mapped, filestat.st_size);
@@ -184,9 +199,6 @@ void dynamic_request(int new_fd, char* path) {
     fflush(stdout);
     char* env_args[] = {query_string, NULL};
 
-    //dup2(new_fd, STDOUT_FILENO); //output works except dup2() seems to not be redirecting
-    //99% sure not a close(file descriptor) issue
-    //dup2(new_fd, STDERR_FILENO);
     if (dup2(new_fd, STDOUT_FILENO) == -1) {
         perror("dup2 stdout");
         close(new_fd);
@@ -198,11 +210,8 @@ void dynamic_request(int new_fd, char* path) {
         exit(EXIT_FAILURE);
     }
 
-    close(new_fd); //not even closing...... never has been
-
-    //error: nothing is getting printed
-
-    //reponse is "empty reply from server"
+    close(new_fd); //wait why am I closing this here?
+    
     if (execve(args[0], args, env_args) == -1) {
         perror("execve");
         close(new_fd);
@@ -215,108 +224,131 @@ void dynamic_request(int new_fd, char* path) {
     exit(EXIT_FAILURE);
 }
 
-void handle_request(int new_fd) {
-    ssize_t max_chars = 1024; //should be plenty for our requests
-    char buffer[max_chars]; //buffer is not necessarily null terminated
-    ssize_t total_bytes = 0; //number of bytes recieved so far
-    ssize_t bytes_read = read(new_fd, &buffer, max_chars); //ssize_t is a signed size_t
-    if(bytes_read == 0) {
-        fprintf(stderr, "server: read() within outer fork\n"); 
-        exit(1); 
-    }
-    printf("bytes read: %d\n", bytes_read);
-    //this fixed the missing n=5 before, why is it breaking now?
-    while (bytes_read != 0) {
-        if(bytes_read < 0) {
+void* consume(void* arg) { //needs (queue q)
+    //convert void* arguments back
+    std::queue<int>* q = (std::queue<int>*) arg;
+
+    while(1) {
+        sem_wait(&full); //when there is something to consume in the queue
+
+        ssize_t max_chars = 1024; //should be plenty for our requests
+        char buffer[max_chars]; //buffer is not necessarily null terminated
+        ssize_t total_bytes = 0; //number of bytes recieved so far
+        pthread_mutex_lock(&queue_mutex);
+        //error, saying this pop() is returning void so I can't assign it to something
+        int new_fd = q->front(); //get the new_fd to consume and process
+        q->pop();
+        pthread_mutex_unlock(&queue_mutex);
+
+        pthread_mutex_lock(&socket_mutex); //I think I need this right?
+        ssize_t bytes_read = read(new_fd, &buffer, max_chars); //ssize_t is a signed size_t
+        if(bytes_read == 0) {
             fprintf(stderr, "server: read() within outer fork\n"); 
             exit(1); 
         }
+        printf("bytes read: %d\n", bytes_read);
+        //this fixed the missing n=5 before, why is it breaking now?
+        while (bytes_read != 0) {
+            if(bytes_read < 0) {
+                fprintf(stderr, "server: read() within outer fork\n"); 
+                exit(1); 
+            }
 
-        total_bytes += bytes_read;
-        //if end of request (\r\n\r\n) is in the buffer, do not attempt to read again, will get stuck
-        if (strstr(buffer, "\r\n\r\n") != NULL) {
-            break;
+            total_bytes += bytes_read;
+            //if end of request (\r\n\r\n) is in the buffer, do not attempt to read again, will get stuck
+            if (strstr(buffer, "\r\n\r\n") != NULL) {
+                break;
+            }
+    
+            //read() and write() are universally used, recv() and send() are for more specialized cases
+            //so for this one use read() and write()
+            
+            printf("before read\n"); //it's waiting for the curl to close it's connection before continuing, shange recv() to read()
+            //nothing is left to read possible, how to move past this if there's nothing left in the request
+            bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
+            printf("after read\n");
         }
- 
-        //read() and write() are universally used, recv() and send() are for more specialized cases
-        //so for this one use read() and write()
-        
-        printf("before read\n"); //it's waiting for the curl to close it's connection before continuing, shange recv() to read()
-        //nothing is left to read possible, how to move past this if there's nothing left in the request
-        bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); //add into buffer offset by however many bytes already recieved (until request is done recv'ing)
-        printf("after read\n");
-    }
+        pthread_mutex_unlock(&socket_mutex);
 
-    //strings don't have endianness, so no need to ntoh()
-    //second token should be filename
-    printf("buffer: %.*s\n", total_bytes, buffer);
-    char* method = strtok(buffer, " ");
-    printf("request method = %s\n", method);
-    char* path = strtok(NULL, " "); //takes out &n=5????
-    printf("request path = %s\n", path);
-    char* protocol = strtok(NULL, " ");
-    printf("request protocol = %s\n", protocol);
+        //strings don't have endianness, so no need to ntoh()
+        //second token should be filename
+        printf("buffer: %.*s\n", total_bytes, buffer);
+        char* method = strtok(buffer, " ");
+        printf("request method = %s\n", method);
+        char* path = strtok(NULL, " "); //takes out &n=5????
+        printf("request path = %s\n", path);
+        char* protocol = strtok(NULL, " ");
+        printf("request protocol = %s\n", protocol);
 
-    if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
-        memmove(path, path+1, strlen(path));
-    }
-
-    if (strstr(path, "fib.cgi") == NULL) { //if path does not request fib.cgi, treat it as a static request
-        static_request(new_fd, path);
-    } else {
-        int chld_status = fork();
-        if(chld_status < 0) {
-            fprintf(stderr, "server: inner child failed to fork\n"); 
-            exit(1); 
+        if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
+            memmove(path, path+1, strlen(path));
         }
 
-        if(chld_status == 0) {
-            dynamic_request(new_fd, path);
-        } else {
-            close(new_fd);
+        if (strstr(path, "fib.cgi") == NULL) { //if path does not request fib.cgi, treat it as a static request
+            static_request(new_fd, path); //critical region is locked
+        } else { //dynamic requests need to wait until thread is fully done before continuing
+            pid_t pid = fork();
+            if(pid == -1) {
+                fprintf(stderr, "server: child failed to fork\n"); 
+                exit(1); 
+            }
+
+            pthread_mutex_lock(&socket_mutex);//lock output before dup2() and execve() inside child process
+            if(pid == 0) { //is there a way to correctly lock the socket mutex inside here
+                dynamic_request(new_fd, path);
+            } else {
+                //parent: wait for the child process to complete
+                int status;
+                waitpid(pid, &status, 0);
+                close(new_fd);
+                pthread_mutex_unlock(&socket_mutex); //would possibly locking the mutex within the child process cause issues?
+            }
         }
+
+        sem_post(&empty); //signal that a slot in the buffer is emptied
     }
 }
 
-void main_accept_loop(int sockfd) {
-    //make an stl queue of ints //need to lock via mutex whenever enqueue or dequeeu called
-    //fill it with new_fd ints
-    int new_fd; // listen on sock_fd, new connection on new_fd 
-    struct sockaddr_storage their_addr; // connector's address information 
-    socklen_t sin_size;
-    char s[INET_ADDRSTRLEN]; // IPv4
+void* produce(void* arg) { //arg should have (int sockfd, queue q), returns nothing
+    //convert void* arguments back
+    std::pair<std::queue<int>*, int*> * args = (std::pair<std::queue<int>*, int*> *) arg;
+    std::queue<int>* q = args->first;
+    int sockfd = *(args->second);
 
     while(1) {
-        sin_size = sizeof their_addr;
-        //instead of setting accept() to new_fd you enqueue an int to the Queue
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-        std::cout << "got request" << std::endl;
-        //pass accepted sockfd into queue for threads to consume
+        int new_fd; // listen on sock_fd, new connection on new_fd 
+        struct sockaddr_storage their_addr; // connector's address information 
+        socklen_t sin_size;
+        char s[INET_ADDRSTRLEN]; // IPv4
 
-        //one producer thread - our main(), enqueues connections via accept() and enqueue()
-        // -t consumer thread
-        //so, we need a consume() function
+        while(1) {
+            sem_wait(&empty); //I believe this will be true while there is an empty slot in the buffer (while semaphore > 0?)
 
-        //sem_WAKEUP
-        //then threads run void* HANDLE_REQUEST(void* arg, void* arg) 
-        //threads read() from the socket and decide what to do 
+            sin_size = sizeof their_addr;
+            new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size); //do I need to lock the socket to accept?, I think no
+            std::cout << "got request" << std::endl;
 
-        if (new_fd == -1) {
-            perror("accept");
-            continue; 
+            if (new_fd == -1) {
+                perror("accept");
+                continue; 
+            } else {
+                pthread_mutex_lock(&queue_mutex);
+                q->push(new_fd); //pass accepted sockfd into queue for consumers to consume
+                pthread_mutex_unlock(&queue_mutex);
+                printf("Produced item %d for Queue: \n", new_fd);
+            }
+
+            sem_post(&full); //signal that a slot in the buffer has filled
+
+            //close(new_fd); do I still need this?
+
+            /* to test connected IP
+            inet_ntop(their_addr.ss_family, 
+                &(((struct sockaddr_in*)(struct sockaddr *)&their_addr)->sin_addr), 
+                s, sizeof s);
+            printf("server: got connection from %s\n", s);
+            */
         }
-
-        handle_request(new_fd);
-        close(new_fd);
-
-        /* to test connected IP
-        inet_ntop(their_addr.ss_family, 
-            &(((struct sockaddr_in*)(struct sockaddr *)&their_addr)->sin_addr), 
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
-        */
-        
-
     }
 }
 
@@ -375,6 +407,22 @@ int main(int argc, char* argv[]) {
     //make ur threads based on -t
     //array of ints for p_ids
     //pthread_create() for handle_request() function (adjust to void*)
+    pthread_t producer;
+    pthread_t consumer_threads[atoi(thread_str)]; //thread_str = # of consumer threads requested by command line
+    
+    if (sem_init(&full, 0, 0) == -1) { //initialized to how many slots in the Queue of connections are full
+        perror("semaphore initialization 1 in main");
+    }
+    if (sem_init(&empty, 0, atoi(buffer_str)) == -1) { //initialized to how many slots in the Queue of connections are empty (size of buffer = size of Queue)
+        perror("semaphore initialization 2 in main");
+    }
+
+    if (pthread_mutex_init(&queue_mutex, NULL) == -1) {
+        perror("mutex initialization 1 in main");
+    }
+    if (pthread_mutex_init(&socket_mutex, NULL) == -1) {
+        perror("mutex initialization 2 in main");
+    }
 
     struct addrinfo* servinfo; //return value for get_addresses
     get_addresses(&servinfo, port); // mutates servinfo, no return needed
@@ -383,7 +431,6 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    int sockfd;
     if ((sockfd = make_bound_socket(servinfo)) == -1) {
         fprintf(stderr, "server: failed to bind\n"); 
         exit(1);
@@ -395,7 +442,29 @@ int main(int argc, char* argv[]) {
 
     freeaddrinfo(servinfo);
 
-    main_accept_loop(sockfd);
+    //producer function is to accept and put connection into queue
+    //consumer function is to handle connection
+        //pretty sure I don't need to worry about making q a fixed size because the semaphore's waits and posts will manage how many free spots there are based on initial buffer_str
+    std::pair<std::queue<int>*, int*> producer_args(&q, &sockfd);
+    //don't make a producer thread seperately because main will just call it, continue with its program unblocked, and exit the program without waiting for the thread to finish
+    pthread_create(&producer, NULL, produce, (void*)&producer_args);
+    for (int i = 0; i < atoi(thread_str); i++) {
+        pthread_create(&consumer_threads[i], NULL, consume, (void*)&q);
+    }
+
+    pthread_join(producer, NULL);
+    // Cancel each consumer thread
+    for (int i = 0; i < atoi(thread_str); i++) {
+        pthread_cancel(consumer_threads[i]);
+    }
+
+    // Destroy semaphores
+    sem_destroy(&full);
+    sem_destroy(&empty);
+    //do I need to "cleanup" threads and semaphores if the server continuously listens for connections anyway? will my code even ever reach here?
+    //sem_destroy(&full);
+    //sem_destroy(&empty);
+
 }
 
 //nc 127.0.0.1 10488
