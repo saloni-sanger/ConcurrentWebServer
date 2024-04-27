@@ -79,8 +79,6 @@ void get_addresses(struct addrinfo** servinfo, char* port) {
         exit(1);
     }
 
-
-
     return;
 }
 
@@ -210,17 +208,16 @@ void dynamic_request(int new_fd, char* path) {
         exit(EXIT_FAILURE);
     }
 
-    close(new_fd); //wait why am I closing this here?
+    close(new_fd); //close new_fd before terminating this process and calling exec, which will just print
+    //in the event that execve fails, new_fd will still be closed because it is called here
     
     if (execve(args[0], args, env_args) == -1) {
         perror("execve");
-        close(new_fd);
         exit(EXIT_FAILURE);
     }
 
     // If execve fails, print error message
     perror("execve");
-    close(new_fd);
     exit(EXIT_FAILURE);
 }
 
@@ -295,7 +292,8 @@ void* consume(void* arg) { //needs (queue q)
 
             pthread_mutex_lock(&socket_mutex);//lock output before dup2() and execve() inside child process
             if(pid == 0) { //is there a way to correctly lock the socket mutex inside here
-                dynamic_request(new_fd, path);
+                close(sockfd); // child doesn't need copy of the listener 
+                dynamic_request(new_fd, path); //close(new_fd) is called within dynamic request before execve()
             } else {
                 //parent: wait for the child process to complete
                 int status;
@@ -339,8 +337,6 @@ void* produce(void* arg) { //arg should have (int sockfd, queue q), returns noth
             }
 
             sem_post(&full); //signal that a slot in the buffer has filled
-
-            //close(new_fd); do I still need this?
 
             /* to test connected IP
             inet_ntop(their_addr.ss_family, 
@@ -464,6 +460,8 @@ int main(int argc, char* argv[]) {
     //do I need to "cleanup" threads and semaphores if the server continuously listens for connections anyway? will my code even ever reach here?
     //sem_destroy(&full);
     //sem_destroy(&empty);
+    pthread_mutex_destroy(&queue_mutex);
+    pthread_mutex_destroy(&socket_mutex);
 
 }
 
