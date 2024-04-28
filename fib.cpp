@@ -11,6 +11,8 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <string>
+#include <sstream>
 
 //strtok
 #include <stdio.h>
@@ -47,14 +49,12 @@ int main() {
         }
         int result = fib(n) % 1000000007;
 
-        std::cout << "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-        std::cout << uname << ", welcome to the CGI Program!\nThe " << n << "th Fibonnaci number is " << result << ".\n";
-        /*
-        std::cout << "Content-Type: text/html\r\n\r\n";
-        std::cout << "<!DOCTYPE html>\n<html>\n<head>\n<title>Fibonacci Result</title>\n</head>\n<body>\n";
-        std::cout << "<h1>Fibonacci(" << n << ") = " << result << "</h1>\n";
-        std::cout << "</body>\n</html>\n";
-        */
+        std::cout << "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html\r\nServer: cpsc4510 web server 1.0\r\n";
+        std::stringstream ss;
+        ss << uname << ", welcome to the CGI Program!\nThe " << n << "th Fibonnaci number is " << result << ".\n";
+        std::string body = ss.str();
+        std::cout << "Content-Length: " << body.length() << "\r\n\r\n";
+        std::cout << body << std::endl;
     }
     return 0;
 }
