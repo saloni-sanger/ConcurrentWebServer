@@ -159,11 +159,12 @@ void static_request(int new_fd, char* path) {
     void *mapped = mmap(NULL, filestat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
 
-    //send HTTP response with file contents
-    char header[1024];
-    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", filestat.st_size);
-
     pthread_mutex_lock(&socket_mutex);
+    //send HTTP response with file contents
+    char header[8192];
+    sprintf(header, "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: %ld\r\n", filestat.st_size);
+    write(new_fd, header, strlen(header));
+    sprintf(header, "Content-Type: text/html\r\nServer: cpsc4510 web server 1.0\r\n\r\n");
     write(new_fd, header, strlen(header));
     write(new_fd, mapped, filestat.st_size);
     pthread_mutex_unlock(&socket_mutex);
