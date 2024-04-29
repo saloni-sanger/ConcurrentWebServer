@@ -80,6 +80,8 @@ Negative or large values for n are rejected (500).
 - Code repitition could be refined through .h files or functions within the program.
 - Date header missing from web server's HTTP responses.
 - Checking if the value passed for n is an integer is not explicitly checked.
+- fib.cpp cannot skip unusable parameters in request URL.
+    Assumes only 2 parameters sent in: either user=_&n=_ or n=_&user=_
 
 #### Makefile
 
