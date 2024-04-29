@@ -1,3 +1,12 @@
+/*
+Name: Saloni Sanger
+Course: Computer Networks
+Date: April 29th, 2024
+File: wclient.c
+Description: wclient sends an HTTP request to wserver,
+    recieves the web server's response, and prints it.
+*/
+
 //std io functions
 #include <stdio.h> 
 

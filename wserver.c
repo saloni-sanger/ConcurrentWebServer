@@ -1,3 +1,13 @@
+/*
+Name: Saloni Sanger
+Course: Computer Networks
+Date: April 29th, 2024
+File: wserver.c
+Description: wserver is a concurrent web server with
+    threads in producer/consumer relationship.
+    It can handle both static and dynamic requests.
+*/
+
 //my port is 10488
 
 //stdlib

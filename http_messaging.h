@@ -1,3 +1,18 @@
+/*
+Name: Saloni Sanger
+Course: Computer Networks
+Date: April 29th, 2024
+File: http_messaging.h
+Description: header to hold functions for response creation
+    and sending. 
+Goals: I would like fib.cpp to be able to create its responses 
+    with this file, and I would like to figure out how to add
+    successful responses for both static and dynamic requests, as
+    well as adding the Date to the response header.
+    Because I didn't have the time to figure this out, I have 
+    awkward code replication throughout this project.
+*/
+
 //stdlib
 #include <stdlib.h> 
 

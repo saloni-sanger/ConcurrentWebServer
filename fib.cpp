@@ -1,13 +1,14 @@
-//cgi program is a c/c++ executable
-//arguments are passed into the cgi script via the QUERY_STRING environment variable
-
-//parse QUERY_STRING, process "user=__char*_&n=__int_" as needed
-
-//calculate nth fibonacci number % 1,000,000,007
-
-//return HTTP resposne back to the client
-//<username>, welcome to the CGI Program!
-//The <n>th Fibonacci number is _.
+/*
+Name: Saloni Sanger
+Course: Computer Networks
+Date: April 29th, 2024
+File: fib.cpp
+Description: fib.cpp is compiled into a cgi program.
+    It parses the QUERY_STRING environment variable for parameters,
+    calcultes the nth fibonacci number. Then, it constructs and prints
+    an HTTP response.
+    In some cases, it prints an HTTP error response and exits.
+*/
 
 #include <iostream>
 #include <cstdlib>
