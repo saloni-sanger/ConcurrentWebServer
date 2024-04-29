@@ -1,6 +1,6 @@
-all: p1
+all: p2
 
-p1: wserver wclient fib.cgi
+p2: wserver wclient fib.cgi
 		g++ wserver.c -o wserver -lpthread
 		g++ wclient.c -o wclient
 		g++ fib.cpp -o fib.cgi
@@ -15,4 +15,4 @@ fib.cgi: fib.cpp
 		g++ -c fib.cpp
 
 clean:
-		rm -f *.o p1
+		rm -f *.o p2

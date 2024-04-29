@@ -86,9 +86,9 @@ Negative or large values for n are rejected (500).
 #### Makefile
 
 ##### all:
-make all is equivalent to make p1.
-##### p1:
+make all is equivalent to make p2.
+##### p2:
 make p1 creates executables for the 3 programs,
 will compile if needed to update or create.
 ##### clean:
-Will erase the .o files created by make p1 or make all.
+Will erase the .o files created by make p2 or make all.
