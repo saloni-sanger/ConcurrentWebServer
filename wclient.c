@@ -119,7 +119,11 @@ void send_request(int sockfd, char* url, char* server) { // write() the request 
     char req_header[1048];
     sprintf(req_header, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, server);
     //url is a string, which don't have endianness
-    write(sockfd, req_header, strlen(req_header)); // writes/sends request into socket
+    int rv;
+    if ((rv = write(sockfd, req_header, strlen(req_header))) == -1) {
+        perror("client: write");
+        exit(1);
+    }
 }
 
 void read_and_print(int sockfd) {
@@ -152,7 +156,7 @@ int main(int argc, char* argv[]) {
     /* scanf test
     printf("URL recieved\nurl: %s\n", url);
     */
-    
+
     struct addrinfo* servinfo;
     get_addresses(&servinfo, server, port);
 
