@@ -16,7 +16,6 @@ Description: wserver is a concurrent web server with
 
 // stdio functions
 #include <stdio.h>
-#include <iostream>
 
 // stl queue
 #include <queue>
@@ -75,8 +74,10 @@ void get_addresses(struct addrinfo** servinfo, char* port) {
     hints.ai_flags = AI_PASSIVE;
 
     int rv; // return value
-    printf("attempting to start on port %s", port);
-    std::cout << std::endl;
+
+    /* port value test
+    printf("attempting to start on port %s\n", port);
+    */
 
     if ((rv = getaddrinfo(NULL, port, &hints, servinfo)) != 0) { // getaddrinfo() creates structs and places them in a linked list starting at servinfo
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv)); 
@@ -146,7 +147,9 @@ void prepare_for_connection(int sockfd, struct sigaction* sa, int backlog) { // 
         exit(1);
     }
 
+    /* server listen test
     printf("server: waiting for connections...\n");
+    */
 }
 
 void static_request(int new_fd, char* path) {
@@ -181,9 +184,11 @@ void static_request(int new_fd, char* path) {
 void dynamic_request(int new_fd, char* path) {
     char* params = path;
     params += strlen("fib.cgi?"); // get everything after ? in path
-    printf("path: %s\n", path);
 
+    /* path and params test
+    printf("path: %s\n", path);
     printf("params: %s\n", params);
+    */
 
     if (access("fib.cgi", F_OK) == -1) { // file does not exist
         pthread_mutex_lock(&socket_mutex);
@@ -213,9 +218,9 @@ void dynamic_request(int new_fd, char* path) {
     strcpy(query_string, "QUERY_STRING="); // copy for string literal
     strcat(query_string, params); // add to the end, already null terminated
 
-    //TEST
-    printf("qstring = %s\n", query_string); //isnt printing even with flush
-    fflush(stdout);
+    /* qstring variable test
+    printf("qstring = %s\n", query_string);
+    */
 
     char* env_args[] = {query_string, NULL}; // make envp char* array, fib.cgi can access what you put in this via environ global variable
 
@@ -265,8 +270,10 @@ void* consume(void* arg) {
             exit(1); 
         }
 
-        //test
+        /* bytes_read variable test
         printf("bytes read: %d\n", bytes_read);
+        */
+        
 
         while (bytes_read != 0) {
             if(bytes_read < 0) {
@@ -284,22 +291,23 @@ void* consume(void* arg) {
             read() and write() are universally used, recv() and send() are for more specialized cases
             so for this use read() and write()
             */
-            
-            //test
-            printf("before read\n"); //it's waiting for the curl to close it's connection before continuing, shange recv() to read()
-            //nothing is left to read possible, how to move past this if there's nothing left in the request
 
             bytes_read = read(new_fd, (&buffer + total_bytes), max_chars); // add into buffer offset by however many bytes already read (until request is done reading)
-
-            //test
-            printf("after read\n");
         }
         pthread_mutex_unlock(&socket_mutex);
 
         // strings don't have endianness, so no need to ntoh()
+
+        /* buffer test
         printf("buffer: %.*s\n", total_bytes, buffer);
+        */
+
         char* method = strtok(buffer, " ");
+        
+        /* request method extraction test
         printf("request method = %s\n", method);
+        */
+
         if (strcmp(method, "GET") != 0) {
             // if the request method is not GET
             pthread_mutex_lock(&socket_mutex);
@@ -312,7 +320,10 @@ void* consume(void* arg) {
             exit(1);
         }
         char* path = strtok(NULL, " ");
+
+        /* request path extraction test 
         printf("request path = %s\n", path);
+        */
 
         if (path[0] == '/') { // if path starts with "/" take it out so it doesn't cause issues during lookup
             memmove(path, path+1, strlen(path));
@@ -330,7 +341,11 @@ void* consume(void* arg) {
         }
 
         char* protocol = strtok(NULL, "\r\n");
+
+        /* request protocol extraction test
         printf("request protocol = %s\n", protocol);
+        */
+
         if (strcmp(protocol, "HTTP/1.1") != 0) { // send error is HTTP version not 1.1
             pthread_mutex_lock(&socket_mutex);
             char error[] = "HTTP version other than 1.1";
@@ -410,9 +425,6 @@ void* produce(void* arg) {
             sin_size = sizeof their_addr;
             new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
 
-            //test
-            std::cout << "got request" << std::endl;
-
             if (new_fd == -1) {
                 perror("accept");
                 continue; 
@@ -421,8 +433,9 @@ void* produce(void* arg) {
                 q->push(new_fd); // pass accepted sockfd into queue for consumers to consume
                 pthread_mutex_unlock(&queue_mutex);
 
-                //test, look for all cout and printf and takeout all tests
+                /* enqueue test 
                 printf("Produced item %d for Queue: \n", new_fd);
+                */
             }
 
             sem_post(&full); // signal that a slot in the buffer has filled
@@ -482,11 +495,12 @@ int main(int argc, char* argv[]) {
     char* buffer_str;
     parse_argv(argc, argv, &port, &thread_str, &buffer_str);
 
-    //testing
+    /* parse_argv testing
     printf("argc: %i\n", argc);
     printf("port: %s\n", port);
     printf("thread_str: %s\n", thread_str);
     printf("buffer_str: %s\n", buffer_str);
+    */
 
     pthread_t producer;
     pthread_t consumer_threads[atoi(thread_str)]; // thread_str = # of consumer threads requested by command line

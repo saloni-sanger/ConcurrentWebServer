@@ -142,11 +142,17 @@ int main(int argc, char* argv[]) {
     char* server;
     char* port;
     parse_argv(argc, argv, &server, &port);
-    printf("argv parsed\nserver: %s\nport: %s\n", server, port); //test, good
+    /* parse_argv test
+    printf("argv parsed\nserver: %s\nport: %s\n", server, port);
+    */
+
     printf("Enter the URL you would like to request,\nplease provide no extra spaces:\n");
     char url[256];
     scanf("%255s", url); // get user input, set url variable, avoid buffer overflow
-    printf("URL recieved\nurl: %s\n", url); //test
+    /* scanf test
+    printf("URL recieved\nurl: %s\n", url);
+    */
+    
     struct addrinfo* servinfo;
     get_addresses(&servinfo, server, port);
 
