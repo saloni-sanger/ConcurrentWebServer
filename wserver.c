@@ -37,6 +37,7 @@
 
 //my headers
 //#include "shared.h"
+#include "http_messaging.h"
 
 //2 mutexes
 //one for the queue protect enqueue/dequeueing bc producer and consumer share this
@@ -182,6 +183,29 @@ void dynamic_request(int new_fd, char* path) {
 
     printf("params: %s\n", params);
 
+    //does path exist? access() function with F_OK. R/W/X _OK can be used to test file permissions
+    if (access("fib.cgi", F_OK) == -1) { //file does not exist
+        pthread_mutex_lock(&socket_mutex);
+        char error[] = "The requested file does not exist";
+        char errnum[] = "404";
+        char reason[] = "Not Found";
+        char msg[] = "Server could not find this file.";
+        write_error_response(new_fd, error, errnum, reason, msg);
+        pthread_mutex_unlock(&socket_mutex);
+        exit(1);
+    }
+
+    if (access("fib.cgi", R_OK) == -1) { //file does not exist
+        pthread_mutex_lock(&socket_mutex);
+        char error[] = "The requested file is not located on the sub-tree of the file system hierarchy that's rooted at the server's base working directory, or the web server does not have permissions to read the file.";
+        char errnum[] = "403";
+        char reason[] = "Forbidden";
+        char msg[] = "Server could not read this file.";
+        write_error_response(new_fd, error, errnum, reason, msg);
+        pthread_mutex_unlock(&socket_mutex);
+        exit(1);
+    }
+
     //setenv("QUERY_STRING", params, 1); //1 overwrites what wasw previously in QUERY_STRING
 
     //redirect standard output to the socket before executing fib.cpp
@@ -273,16 +297,78 @@ void* consume(void* arg) { //needs (queue q)
         printf("buffer: %.*s\n", total_bytes, buffer);
         char* method = strtok(buffer, " ");
         printf("request method = %s\n", method);
+        if (strcmp(method, "GET") != 0) {
+            //if the request emthod is not GET
+            pthread_mutex_lock(&socket_mutex);
+            char error[] = "HTTP method other than GET";
+            char errnum[] = "501";
+            char reason[] = "Not Implemented";
+            char msg[] = "Server does not implement this method.";
+            write_error_response(new_fd, error, errnum, reason, msg);
+            pthread_mutex_unlock(&socket_mutex);
+            exit(1);
+        }
         char* path = strtok(NULL, " "); //takes out &n=5????
         printf("request path = %s\n", path);
-        char* protocol = strtok(NULL, " ");
-        printf("request protocol = %s\n", protocol);
 
         if (path[0] == '/') { //if path starts with "/" take it out so it doesn't cause issues during lookup
             memmove(path, path+1, strlen(path));
         }
 
+        
+
+        //does path contain ".." security issue, or does server not have read permissions?
+        if (strstr(path, "..") != NULL) {
+            pthread_mutex_lock(&socket_mutex);
+            char error[] = "The requested file is not located on the sub-tree of the file system hierarchy that's rooted at the server's base working directory, or the web server does not have permissions to read the file.";
+            char errnum[] = "403";
+            char reason[] = "Forbidden";
+            char msg[] = "Server could not read this file.";
+            write_error_response(new_fd, error, errnum, reason, msg);
+            pthread_mutex_unlock(&socket_mutex);
+            exit(1);
+        }
+
+        char* protocol = strtok(NULL, "\r\n");
+        printf("request protocol = %s\n", protocol);
+        if (strcmp(protocol, "HTTP/1.1") != 0) {
+            //if the HTTP version is not 1.1
+            pthread_mutex_lock(&socket_mutex);
+            char error[] = "HTTP version other than 1.1";
+            char errnum[] = "502";
+            char reason[] = "Not Supported";
+            char msg[] = "Server does not support this version.";
+            write_error_response(new_fd, error, errnum, reason, msg);
+            pthread_mutex_unlock(&socket_mutex);
+            exit(1);
+        }
+
+
         if (strstr(path, "fib.cgi") == NULL) { //if path does not request fib.cgi, treat it as a static request
+            //does path exist? access() function with F_OK. R/W/X _OK can be used to test file permissions
+            if (access(path, F_OK) == -1) { //file does not exist
+                pthread_mutex_lock(&socket_mutex);
+                char error[] = "The requested file does not exist";
+                char errnum[] = "404";
+                char reason[] = "Not Found";
+                char msg[] = "Server could not find this file.";
+                write_error_response(new_fd, error, errnum, reason, msg);
+                pthread_mutex_unlock(&socket_mutex);
+                exit(1);
+            }
+
+            if (access(path, R_OK) == -1) { //file does not exist
+                pthread_mutex_lock(&socket_mutex);
+                char error[] = "The requested file is not located on the sub-tree of the file system hierarchy that's rooted at the server's base working directory, or the web server does not have permissions to read the file.";
+                char errnum[] = "403";
+                char reason[] = "Forbidden";
+                char msg[] = "Server could not read this file.";
+                write_error_response(new_fd, error, errnum, reason, msg);
+                pthread_mutex_unlock(&socket_mutex);
+                exit(1);
+            }
+
+            
             static_request(new_fd, path); //critical region is locked
         } else { //dynamic requests need to wait until thread is fully done before continuing
             pid_t pid = fork();

@@ -18,6 +18,9 @@
 #include <stdio.h>
 #include <string.h>
 
+//my headers
+#include "http_messaging.h"
+
 extern char** environ;
 
 int fib(int n) {
@@ -41,12 +44,30 @@ int main() {
                 n = atoi(strtok(NULL, ""));
             }
         } else if (strcmp(var, "n") == 0) {
-            n = atoi(strtok(NULL, "&"));
+            n = atoi(strtok(NULL, "&")); //atoi will silently fail if n is not an int
             var = strtok(NULL, "=");
             if (strcmp(var, "user") == 0) {
                 uname = strtok(NULL, "");
             }
         }
+
+        if (n < 0 || n > 10000) {
+            char error[] = "The parameter 'n' for fib.cgi is not an integer, a negative integer, or a positive integer larger than 10,000.";
+            char errnum[] = "500";
+            char reason[] = "Internal Server Error";
+            char msg[] = "Server could not complete this request.";
+            std::stringstream body;
+            body << "\r\n<!doctype html>\r\n<head>\r\n<title>OSTEP WebServer Error</title>\r\n</head>\r\n<body>\r\n<h2>" << errnum;
+            body << ": " << reason << "</h2>\r\n<p>" << error << ": " << msg << "</p>\r\n</body>\r\n</html>\r\n";
+            std::string b = body.str();
+            std::stringstream header;
+            header << "HTTP/1.1 " << errnum << " " << reason << "\r\nConnection: close\r\nContent-Length: " << b.length() << "\r\nContent-Type: text/html\r\n";
+            header << "Server: cpsc4510 web server 1.0\r\n";
+            std::string h  = header.str();
+            std::cout << h << b << std::endl;
+            exit(1);
+        }
+
         int result = fib(n) % 1000000007;
 
         std::cout << "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html\r\nServer: cpsc4510 web server 1.0\r\n";
