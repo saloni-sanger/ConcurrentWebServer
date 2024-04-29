@@ -7,30 +7,26 @@ Description: wclient sends an HTTP request to wserver,
     recieves the web server's response, and prints it.
 */
 
-//std io functions
+// std io functions
 #include <stdio.h> 
 
-//std lib
+// std lib
 #include <stdlib.h> 
 
-//unix socket
+// unix socket
 #include <unistd.h>
 #include <sys/types.h> 
 
-//string
+// string
 #include <string.h> 
 
-//network
+// network
 #include <netdb.h> 
 #include <sys/socket.h>
 #include <arpa/inet.h>
-//good idea to include netinet if using arpa
+// good idea to include netinet if using arpa
 #include <netinet/in.h> 
 
-//my header here
-
-//if brackets involved take off bracket before strcmp and
-//take off bracket before setting a variable
 void parse_argv(int argc, char* argv[], char** server, char** port) {
     for (int i = 1; i < argc; i+=2) {
         if ((i+1) >= argc) {
@@ -40,7 +36,7 @@ void parse_argv(int argc, char* argv[], char** server, char** port) {
         if (strcmp("-s", argv[i]) == 0) { 
             *(server) = argv[i+1];
         }
-        else if (strcmp("-p", argv[i]) == 0) { //check if port is <= 65535 (max port #)
+        else if (strcmp("-p", argv[i]) == 0) { // check if port is <= 65535 (max port #)
             if (atoi(argv[i+1]) > 65535) {
                 fprintf(stderr, "port does not exist.\n");
                 exit(1);
@@ -104,10 +100,12 @@ int connect_socket(struct addrinfo* servinfo) {
         return 2;
     }
 
+    /*test
     char s[INET_ADDRSTRLEN];
     inet_ntop(p->ai_family, &(((struct sockaddr_in*)(struct sockaddr *)&p)->sin_addr), 
             s, sizeof s);
     printf("client: connecting to %s\n", s);
+    */
 
     freeaddrinfo(servinfo);
 
@@ -128,10 +126,8 @@ void read_and_print(int sockfd) {
     int numbytes;
     char buf[1048]; 
     memset(&buf, 0, sizeof buf);
-    while ((numbytes = read(sockfd, buf, sizeof(buf))) > 0) { //could read again only if buf has not been completely filled? causes weird edge case if buffer is exactly filled and also finished
+    while ((numbytes = read(sockfd, buf, sizeof(buf))) > 0) { 
         printf("%s", buf);
-        
-        //how to read the header, get Content-Length, than read only that amount so loop can terminate
     } 
     if (numbytes == -1) {
         perror("client: read");
@@ -149,7 +145,7 @@ int main(int argc, char* argv[]) {
     printf("argv parsed\nserver: %s\nport: %s\n", server, port); //test, good
     printf("Enter the URL you would like to request,\nplease provide no extra spaces:\n");
     char url[256];
-    scanf("%255s", url); //get user input, set url variable, avoid buffer overflow
+    scanf("%255s", url); // get user input, set url variable, avoid buffer overflow
     printf("URL recieved\nurl: %s\n", url); //test
     struct addrinfo* servinfo;
     get_addresses(&servinfo, server, port);

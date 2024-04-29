@@ -13,20 +13,20 @@ Goals: I would like fib.cpp to be able to create its responses
     awkward code replication throughout this project.
 */
 
-//stdlib
+// stdlib
 #include <stdlib.h> 
 
-//std io functions
+// std io functions
 #include <stdio.h>
 #include <iostream>
 
-//socket write()
+// socket write()
 #include <unistd.h>
 
-//strlen()
+// strlen()
 #include <string.h>
 
-//struct stat
+// struct stat
 #include <sys/stat.h>
 
 //adapted from Dr. Zhu's code
@@ -43,8 +43,8 @@ void write_or_die(int fd, char* buf, size_t length) {
 
 void write_error_response(int fd, char* cause, char* errnum, char* shortmsg, char* longmsg) {
     char buf[MAXBUF], body[MAXBUF];
-    //create body first, its length is needed for header
-    sprintf(body, "" //second \r\n substitute before data
+    // create body first, its length is needed for header
+    sprintf(body, "" // second \r\n substitute before data
     "<!doctype html>\r\n"
     "<head>\r\n"
     "  <title>OSTEP WebServer Error</title>\r\n"
@@ -55,7 +55,7 @@ void write_error_response(int fd, char* cause, char* errnum, char* shortmsg, cha
     "</body>\r\n"
     "</html>\r\n", errnum, shortmsg, longmsg, cause);
 
-    //header
+    // header
     sprintf(buf, "HTTP/1.1 %s %s\r\n", errnum, shortmsg);
     write_or_die(fd, buf, strlen(buf));
 
@@ -67,7 +67,7 @@ void write_error_response(int fd, char* cause, char* errnum, char* shortmsg, cha
     write_or_die(fd, buf, strlen(buf));
     */
 
-    sprintf(buf, "Content-Length: %lu\r\n", strlen(body)); //%lu = long unsigned integer
+    sprintf(buf, "Content-Length: %lu\r\n", strlen(body)); // %lu = long unsigned integer
     write_or_die(fd, buf, strlen(buf));
 
     sprintf(buf, "Content-Type: text/html\r\n");
@@ -78,7 +78,9 @@ void write_error_response(int fd, char* cause, char* errnum, char* shortmsg, cha
 
     write_or_die(fd, body, strlen(body));
 }
-/*
+
+
+/* my attempt at something fancy.. I don't have the time to make it work right now
 void write_successful_static_response(int fd, struct stat filestat, void* mapped) {
     char buf[MAXBUF];
 

@@ -30,8 +30,6 @@ int fib(int n) {
     return fib(n - 1) + fib(n - 2);
 }
 
-//add to readme weaknesses: fib.cgi cannot skip unusable parameters in request URL
-//assumes only 2 parameters sent in, either user=_&n=_ or n=_&user=_
 int main() {
     char *params = getenv("QUERY_STRING"); //this was set by creating envp[] in server
     if (params != nullptr) {
